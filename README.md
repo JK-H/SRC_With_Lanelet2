@@ -83,3 +83,14 @@ add_compile_options(-fext-numeric-literals)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DBOOST_MATH_DISABLE_FLOAT128")
 
 ```
+
+## Running
+```shell
+cd your_ros_workspace
+source devel/setup.bash
+roslaunch src/ad_with_lanelet2/run_map_simulator.launch
+```
+In Rviz:
+Set start point by 2D Pose Estimate.
+Set goal point by 2D Nav Goal.
+The full_coverage_path is generated and displayed dynamically.

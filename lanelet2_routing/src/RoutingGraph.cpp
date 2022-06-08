@@ -900,5 +900,13 @@ RoutingGraph::Errors RoutingGraph::checkValidity(bool throwOnError) const {
 RoutingGraph::RoutingGraph(std::unique_ptr<RoutingGraphGraph>&& graph, LaneletSubmapConstPtr&& passableMap)
     : graph_{std::move(graph)}, passableLaneletSubmap_{std::move(passableMap)} {}
 
+Optional<double> RoutingGraph::getEdgeCost(const ConstLanelet& from, const ConstLanelet& to){
+    Optional<internal::EdgeInfo> edgeInfo = graph_->getEdgeInfo(from, to);
+    if (!!edgeInfo) {
+      return edgeInfo->routingCost;
+    }
+    return {};
+}
+
 }  // namespace routing
 }  // namespace lanelet

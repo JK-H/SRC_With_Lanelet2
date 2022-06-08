@@ -374,7 +374,7 @@ bool MissionPlannerLanelet2::planFullCoveragePath(
     
     if(!visited_lanelet.count(cur_lanelet.id())){
       // connect backtracking lanelet with current pose lanelet
-      if (pose_lanelet != cur_lanelet) {
+      if (*(routing_graph_ptr_->routingRelation(pose_lanelet, cur_lanelet)) != lanelet::routing::RelationType::Successor) {
         lanelet::Optional<lanelet::routing::Route> back_route =
           routing_graph_ptr_->getRoute(pose_lanelet, cur_lanelet, 0);
         if (!back_route) {
@@ -397,15 +397,15 @@ bool MissionPlannerLanelet2::planFullCoveragePath(
             dfs_stk.push(following_llt);
           }
         }
+      }else{
+        lanelet::ConstLanelets following_lanelets = routing_graph_ptr_->following(cur_lanelet);
+        for (const auto & following_llt : following_lanelets){
+          dfs_stk.push(following_llt);
+        }
+        
+        visited_lanelet.emplace(cur_lanelet.id());
+        full_coverage_path.push_back(cur_lanelet);
       }
-
-      lanelet::ConstLanelets following_lanelets = routing_graph_ptr_->following(cur_lanelet);
-      for (const auto & following_llt : following_lanelets){
-        dfs_stk.push(following_llt);
-      }
-      
-      visited_lanelet.emplace(cur_lanelet.id());
-      full_coverage_path.push_back(cur_lanelet);
     }
   }
   // go to the goal lanelet
@@ -435,9 +435,19 @@ bool MissionPlannerLanelet2::planFullCoveragePath(
   ROS_INFO_STREAM("laneletLayer size: " << lanelet_map_ptr_->laneletLayer.size());
   ROS_INFO_STREAM("visited_lanelet_set size: " << visited_lanelet.size());
   ROS_INFO_STREAM("full_coverage_path size: " << full_coverage_path.size() << std::endl);
-  for (const auto & llt : full_coverage_path) {
-    path_lanelets_ptr->push_back(llt);
-    ROS_INFO_STREAM("path_lanelets_ptr id [" << path_lanelets_ptr->size() <<"] : "<< llt.id());
+  for (auto it = full_coverage_path.begin(); it != full_coverage_path.end(); it++) {
+    lanelet::ConstLanelet curllt = *it;
+    path_lanelets_ptr->push_back(curllt);
+    ROS_INFO_STREAM("path_lanelets_ptr id [" << path_lanelets_ptr->size() << "] : " << curllt.id());
+    if(it != full_coverage_path.end() - 1){
+      lanelet::ConstLanelet nxtllt = *(it + 1);
+      lanelet::Optional<double> Edge_info = routing_graph_ptr_->getEdgeCost(curllt, nxtllt);
+
+      ROS_INFO_STREAM("cost of the edge from id[" 
+                      << curllt.id() << "] to id[" 
+                      << nxtllt.id() << "] :"
+                      << *Edge_info);
+    }
   }
 
   return true;

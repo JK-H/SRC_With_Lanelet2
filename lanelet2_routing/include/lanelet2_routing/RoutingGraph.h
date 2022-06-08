@@ -419,6 +419,8 @@ class RoutingGraph {
    */
   RoutingGraph(std::unique_ptr<internal::RoutingGraphGraph>&& graph, lanelet::LaneletSubmapConstPtr&& passableMap);
 
+  Optional<double> getEdgeCost(const ConstLanelet& from, const ConstLanelet& to);
+
  private:
   //! Documentation to be found in the cpp file.
   std::unique_ptr<internal::RoutingGraphGraph> graph_;  ///< Wrapper of the routing graph

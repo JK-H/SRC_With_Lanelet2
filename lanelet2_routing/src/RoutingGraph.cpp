@@ -908,5 +908,13 @@ Optional<double> RoutingGraph::getEdgeCost(const ConstLanelet& from, const Const
     return {};
 }
 
+Optional<RelationType> RoutingGraph::getEdgeRelation(const ConstLanelet& from, const ConstLanelet& to){
+    Optional<internal::EdgeInfo> edgeInfo = graph_->getEdgeInfo(from, to);
+    if (!!edgeInfo) {
+      return edgeInfo->relation;
+    }
+    return {};
+}
+
 }  // namespace routing
 }  // namespace lanelet

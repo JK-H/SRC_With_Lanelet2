@@ -52,6 +52,8 @@ private:
 
   ros::Subscriber map_subscriber_;
 
+  std::unordered_map<int, lanelet::Id> node2lanelet_hash_;
+
   void mapCallback(const autoware_lanelet2_msgs::MapBin & msg);
   bool isGoalValid() const;
 
@@ -67,13 +69,28 @@ private:
     const geometry_msgs::PoseStamped & goal_checkpoint,
     lanelet::ConstLanelets * path_lanelets_ptr) const;
   bool planFullCoveragePath(
-    const geometry_msgs::PoseStamped& start_checkpoint,
-    const geometry_msgs::PoseStamped& goal_checkpoint,
-    lanelet::ConstLanelets* path_lanelets_ptr) const;
+    const geometry_msgs::PoseStamped & start_checkpoint,
+    const geometry_msgs::PoseStamped & goal_checkpoint,
+    lanelet::ConstLanelets * path_lanelets_ptr) const;
+  bool planFullCoveragePathByTSP(
+    const geometry_msgs::PoseStamped & start_checkpoint,
+    const geometry_msgs::PoseStamped & goal_checkpoint,
+    lanelet::ConstLanelets * path_lanelets_ptr) const;
   lanelet::ConstLanelets getMainLanelets(
-    const lanelet::ConstLanelets & path_lanelets, const RouteHandler & lanelet_sequence_finder);
+    const lanelet::ConstLanelets & path_lanelets,
+    const RouteHandler & lanelet_sequence_finder);
   RouteSections createRouteSections(
     const lanelet::ConstLanelets & main_path, const RouteHandler & route_handler);
+
+  double getWeightOfAjacentMatrix(
+    const lanelet::ConstLanelet & from,
+    const lanelet::ConstLanelet & to) const;
+  void initializeNode2laneletHash();
+  std::vector<std::vector<double>> getAjacentMatrix() const;
+  double getPathCost(const lanelet::ConstLanelets & path) const;
+  bool expandPathToTheLanelet(
+    lanelet::ConstLanelets * path_lanelets_ptr,
+    const lanelet::ConstLanelet & goal_lanelet) const;
 };
 }  // namespace mission_planner
 

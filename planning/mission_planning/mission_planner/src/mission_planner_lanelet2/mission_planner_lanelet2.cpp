@@ -17,6 +17,8 @@
 #include <mission_planner/lanelet2_impl/mission_planner_lanelet2.h>
 #include <mission_planner/lanelet2_impl/route_handler.h>
 #include <mission_planner/lanelet2_impl/utility_functions.h>
+#include <mission_planner/lanelet2_impl/TSP_concorde.h>
+#include <mission_planner/lanelet2_impl/TSP_LKH.h>
 
 #include <tf2/utils.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
@@ -137,6 +139,7 @@ void MissionPlannerLanelet2::mapCallback(const autoware_lanelet2_msgs::MapBin & 
   lanelet::utils::conversion::fromBinMsg(
     msg, lanelet_map_ptr_, &traffic_rules_ptr_, &routing_graph_ptr_);
   is_graph_ready_ = true;
+  initializeNode2laneletHash();
 }
 
 bool MissionPlannerLanelet2::isRoutingGraphReady() const { return (is_graph_ready_); }
@@ -245,7 +248,7 @@ autoware_planning_msgs::Route MissionPlannerLanelet2::planRoute()
     const auto start_checkpoint = checkpoints_.at(i - 1);
     const auto goal_checkpoint = checkpoints_.at(i);
     lanelet::ConstLanelets path_lanelets;
-    if (!planFullCoveragePath(start_checkpoint, goal_checkpoint, &path_lanelets)) {
+    if (!planFullCoveragePathByTSP(start_checkpoint, goal_checkpoint, &path_lanelets)) {
       return route_msg;
     }
 
@@ -341,6 +344,31 @@ RouteSections MissionPlannerLanelet2::createRouteSections(
   return route_sections;
 }
 
+bool MissionPlannerLanelet2::expandPathToTheLanelet(
+    lanelet::ConstLanelets * path_lanelets_ptr,
+    const lanelet::ConstLanelet & goal_lanelet) const
+{
+  if(path_lanelets_ptr->empty()){
+    ROS_ERROR_STREAM("path_lanelets_ptr is empty!");
+    return false;
+  }
+  lanelet::Optional<lanelet::routing::LaneletPath> go_path =
+      routing_graph_ptr_->shortestPath(path_lanelets_ptr->back(), goal_lanelet, 0, false);
+  if(!go_path){
+    ROS_ERROR_STREAM(
+      "Failed to find a proper go_path!"
+      << std::endl
+      << "start lane id: " << path_lanelets_ptr->back().id() << std::endl
+      << "goal lane id: " << goal_lanelet.id() << std::endl);
+    return false;
+  }
+  path_lanelets_ptr->pop_back();
+  for (const auto & llt : *go_path) {
+    path_lanelets_ptr->push_back(llt);
+  }
+  return true;
+}
+
 // full coverage 
 bool MissionPlannerLanelet2::planFullCoveragePath(
   const geometry_msgs::PoseStamped & start_checkpoint,
@@ -433,24 +461,200 @@ bool MissionPlannerLanelet2::planFullCoveragePath(
   std::cout << "elapsed time: " << elapsed_secs << "\n";
 
   ROS_INFO_STREAM("laneletLayer size: " << lanelet_map_ptr_->laneletLayer.size());
+  ROS_INFO_STREAM("passableSubmap() size: " << routing_graph_ptr_->passableSubmap()->laneletLayer.size());
   ROS_INFO_STREAM("visited_lanelet_set size: " << visited_lanelet.size());
   ROS_INFO_STREAM("full_coverage_path size: " << full_coverage_path.size() << std::endl);
   for (auto it = full_coverage_path.begin(); it != full_coverage_path.end(); it++) {
     lanelet::ConstLanelet curllt = *it;
     path_lanelets_ptr->push_back(curllt);
     ROS_INFO_STREAM("path_lanelets_ptr id [" << path_lanelets_ptr->size() << "] : " << curllt.id());
-    if(it != full_coverage_path.end() - 1){
-      lanelet::ConstLanelet nxtllt = *(it + 1);
-      lanelet::Optional<double> Edge_info = routing_graph_ptr_->getEdgeCost(curllt, nxtllt);
-
-      ROS_INFO_STREAM("cost of the edge from id[" 
-                      << curllt.id() << "] to id[" 
-                      << nxtllt.id() << "] :"
-                      << *Edge_info);
-    }
   }
 
   return true;
+}
+
+// get weight element of matrix
+double MissionPlannerLanelet2::getWeightOfAjacentMatrix(
+  const lanelet::ConstLanelet& from,
+  const lanelet::ConstLanelet& to) const
+{
+  double total_weight = 0;
+  lanelet::ConstLanelets weight_path{from};
+  if(!expandPathToTheLanelet(&weight_path, to)) {
+    return 0;
+  }
+
+  for (auto it = weight_path.begin(); it != weight_path.end() - 1; it++) {
+    lanelet::Optional<double> edge_cost = routing_graph_ptr_->getEdgeCost(*it, *(it + 1));
+    if(!edge_cost){
+      ROS_ERROR_STREAM(
+      "Failed to get the cost of edge!"
+      << std::endl
+      << "from lane id: " << it->id() << std::endl
+      << "to lane id: " << (it + 1)->id() << std::endl);
+      break;
+    }
+    total_weight += *edge_cost;
+  }
+  return total_weight;
+}
+
+void MissionPlannerLanelet2::initializeNode2laneletHash()
+{
+  auto umap_it = routing_graph_ptr_->passableSubmap()->laneletLayer.begin();
+  auto umap_end = routing_graph_ptr_->passableSubmap()->laneletLayer.end();
+  for (int node_index = 0; umap_it != umap_end; node_index++, umap_it++){
+      node2lanelet_hash_.emplace(node_index, umap_it->id());
+  }
+}
+
+// get weight matrix
+std::vector<std::vector<double>> MissionPlannerLanelet2::getAjacentMatrix() const
+{
+  if(routing_graph_ptr_->passableSubmap()->laneletLayer.size() != node2lanelet_hash_.size()){
+    ROS_ERROR_STREAM("node2lanelet_hash_ is not correct!");
+    return std::vector<std::vector<double>>{};
+  }
+  int dimension = node2lanelet_hash_.size();
+  std::vector<std::vector<double>> aj_matrix(dimension + 1, std::vector<double>(dimension + 1, 0));
+  for (int row = 0; row < dimension; row++){
+      for (int col = 0; col < dimension; col++){
+        if(row != col){
+          lanelet::ConstLanelet fromllt = lanelet_map_ptr_->laneletLayer.get(node2lanelet_hash_.at(row));
+          lanelet::ConstLanelet tollt = lanelet_map_ptr_->laneletLayer.get(node2lanelet_hash_.at(col));
+          aj_matrix[row][col] = getWeightOfAjacentMatrix(fromllt, tollt);
+        }
+        else {
+          aj_matrix[row][col] = 1000000.0;
+        }
+      }
+  }
+  aj_matrix[dimension][dimension] = 1000000.0;
+  ROS_INFO_STREAM("Distance matrix is created!");
+  return aj_matrix;
+}
+
+// plan full coverage path by TSP solver
+bool MissionPlannerLanelet2::planFullCoveragePathByTSP(
+  const geometry_msgs::PoseStamped & start_checkpoint,
+  const geometry_msgs::PoseStamped & goal_checkpoint,
+  lanelet::ConstLanelets * path_lanelets_ptr) const
+{
+  clock_t begin = clock();
+
+  lanelet::Lanelet start_lanelet;
+  if (!getClosestLanelet(start_checkpoint.pose, lanelet_map_ptr_, &start_lanelet)) {
+    return false;
+  }
+  lanelet::Lanelet goal_lanelet;
+  if (!getClosestLanelet(goal_checkpoint.pose, lanelet_map_ptr_, &goal_lanelet)) {
+    return false;
+  }
+
+  std::vector<std::vector<double>> ajacent_matrix = getAjacentMatrix();
+  std::vector<int> optimal_node_order;      // Hamilton cycle
+
+  // ConcordeTSPSolver tsp_solver;
+  // optimal_node_order = tsp_solver.solveConcordeTSP(ajacent_matrix);
+  LKHTSPSolver tsp_solver;
+  optimal_node_order = tsp_solver.solveLKHTSP(ajacent_matrix);
+
+// 
+  double verify_solution = 0;
+  for (auto it = optimal_node_order.begin(); it != optimal_node_order.end() - 1; it++) {
+      verify_solution += ajacent_matrix[*it][*(it + 1)];
+  }
+  verify_solution += ajacent_matrix[optimal_node_order.back()][0];
+  ROS_INFO_STREAM("verify_solution : " << verify_solution);
+  //
+
+  // convert to lanelet order
+  std::vector<lanelet::Id> lanelet_id_order;
+  for (int& index: optimal_node_order) {
+    // remove the added node at last
+    if(index < optimal_node_order.size() - 1)
+      lanelet_id_order.push_back(node2lanelet_hash_.at(index));
+  }
+
+  // open the Hamilton cycle with the start_lanelet at the beginning
+  lanelet::Id start_id = start_lanelet.id();
+  unsigned int start_id_position;
+  // find position of the start id in the order
+	for (unsigned int i = 0; i < lanelet_id_order.size(); i++) {
+		if (lanelet_id_order[i] == start_id){
+			start_id_position = i;
+		}
+	}
+  // sort the vector starting at start_id
+  std::vector<lanelet::Id> final_lanelet_id_order;
+  for (unsigned int i = start_id_position; i < lanelet_id_order.size(); i++) {
+		final_lanelet_id_order.push_back(lanelet_id_order[i]);
+	}
+	for (unsigned int i = 0; i < start_id_position; i++) {
+		final_lanelet_id_order.push_back(lanelet_id_order[i]);
+	}
+
+  lanelet::ConstLanelets full_coverage_path{start_lanelet};
+  final_lanelet_id_order.erase(final_lanelet_id_order.begin());
+  for (const lanelet::Id& llt_id : final_lanelet_id_order) {
+    if(!expandPathToTheLanelet(&full_coverage_path, lanelet_map_ptr_->laneletLayer.get(llt_id)))
+      return false;
+  }
+
+  ROS_INFO_STREAM("Cost of full_coverage_path after TSP solved: " << getPathCost(full_coverage_path));
+
+  // go to the goal_lanelet
+  if(!expandPathToTheLanelet(&full_coverage_path, goal_lanelet))
+    return false;
+
+  ROS_INFO_STREAM("Cost of full_coverage_path finally: " << getPathCost(full_coverage_path));
+
+  clock_t end = clock();
+  double elapsed_secs = static_cast<double>(end - begin) / CLOCKS_PER_SEC;
+  ROS_INFO_STREAM("elapsed time: " << elapsed_secs);
+
+  ROS_INFO_STREAM("laneletLayer size: " << lanelet_map_ptr_->laneletLayer.size());
+  ROS_INFO_STREAM("passableSubmap() size: " << routing_graph_ptr_->passableSubmap()->laneletLayer.size());
+  ROS_INFO_STREAM("full_coverage_path size: " << full_coverage_path.size() << std::endl);
+  for (auto it = full_coverage_path.begin(); it != full_coverage_path.end(); it++) {
+    lanelet::ConstLanelet curllt = *it;
+    path_lanelets_ptr->push_back(curllt);
+    ROS_INFO_STREAM("path_lanelets_ptr id [" << path_lanelets_ptr->size() << "] : " << curllt.id());
+  }
+
+  return true;
+}
+
+// get cost of a path
+double MissionPlannerLanelet2::getPathCost(const lanelet::ConstLanelets& path) const
+{
+  double total_cost = 0;
+  for (auto it = path.begin(); it != path.end() - 1; it++) {
+    lanelet::Optional<lanelet::routing::RelationType> relation = 
+      routing_graph_ptr_->routingRelation(*it, *(it + 1));
+    if (!!relation && (*relation == lanelet::routing::RelationType::Successor
+        || *relation == lanelet::routing::RelationType::Left
+        || *relation == lanelet::routing::RelationType::Right)){
+      lanelet::Optional<double> edge_cost = routing_graph_ptr_->getEdgeCost(*it, *(it + 1));
+      if (!edge_cost) {
+        ROS_ERROR_STREAM(
+            "Failed to get the cost of edge!"
+            << std::endl
+            << "from lane id: " << it->id() << std::endl
+            << "to lane id: " << (it + 1)->id() << std::endl);
+        break;
+      }
+      total_cost += *edge_cost;
+    }
+    else{
+      ROS_ERROR_STREAM("somewhere is unreachable in path!" << std::endl
+                        << "from lane id: " << it->id() << std::endl
+                        << "to lane id: " << (it + 1)->id() << std::endl);
+      break;
+    }
+  }
+
+  return total_cost;
 }
 
 void MissionPlannerLanelet2::visualizeRouteStepByStep(const autoware_planning_msgs::Route & route) const
@@ -482,30 +686,6 @@ void MissionPlannerLanelet2::visualizeRouteStepByStep(const autoware_planning_ms
     // marker.lifetime = ros::Duration();
   }
 
-  // std_msgs::ColorRGBA cl_route, cl_ll_borders, cl_end, cl_normal, cl_goal;
-  // setColor(&cl_route, 0.0, 0.7, 0.2, 0.8);
-  // setColor(&cl_goal, 0.0, 0.0, 0.0, 0.5);
-  // setColor(&cl_end, 0.0, 0.0, 0.0, 0.5);
-  // setColor(&cl_normal, 0.0, 0.0, 0.0, 0.5);
-  // setColor(&cl_ll_borders, 1.0, 1.0, 1.0, 0.999);
-
-  // visualization_msgs::MarkerArray route_marker_array;
-  // insertMarkerArray(
-  //   &route_marker_array,
-  //   lanelet::visualization::laneletsBoundaryAsMarkerArray(route_lanelets, cl_ll_borders, false));
-  // insertMarkerArray(
-  //   &route_marker_array, lanelet::visualization::laneletsAsTriangleMarkerArray(
-  //                          "route_lanelets", route_lanelets, cl_route));
-  // insertMarkerArray(
-  //   &route_marker_array,
-  //   lanelet::visualization::laneletsAsTriangleMarkerArray("end_lanelets", end_lanelets, cl_end));
-  // insertMarkerArray(
-  //   &route_marker_array, lanelet::visualization::laneletsAsTriangleMarkerArray(
-  //                          "normal_lanelets", normal_lanelets, cl_normal));
-  // insertMarkerArray(
-  //   &route_marker_array,
-  //   lanelet::visualization::laneletsAsTriangleMarkerArray("goal_lanelets", goal_lanelets, cl_goal));
-  // marker_publisher_.publish(route_marker_array);
 }
 
 

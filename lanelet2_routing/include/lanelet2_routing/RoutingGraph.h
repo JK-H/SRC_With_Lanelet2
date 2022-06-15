@@ -420,6 +420,7 @@ class RoutingGraph {
   RoutingGraph(std::unique_ptr<internal::RoutingGraphGraph>&& graph, lanelet::LaneletSubmapConstPtr&& passableMap);
 
   Optional<double> getEdgeCost(const ConstLanelet& from, const ConstLanelet& to);
+  Optional<RelationType> getEdgeRelation(const ConstLanelet& from, const ConstLanelet& to);
 
  private:
   //! Documentation to be found in the cpp file.

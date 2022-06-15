@@ -32,6 +32,8 @@ add_executable(mission_planner
   src/mission_planner_lanelet2/route_handler.cpp
   src/mission_planner_lanelet2/mission_planner_main.cpp
   src/mission_planner_lanelet2/utility_functions.cpp
+  src/mission_planner_lanelet2/TSP_concorde.cpp
+  src/mission_planner_lanelet2/TSP_LKH.cpp
 )
 add_dependencies(mission_planner
   ${${PROJECT_NAME}_EXPORTED_TARGETS}

@@ -91,6 +91,7 @@ private:
   bool expandPathToTheLanelet(
     lanelet::ConstLanelets * path_lanelets_ptr,
     const lanelet::ConstLanelet & goal_lanelet) const;
+  double getTotalLength() const;
 };
 }  // namespace mission_planner
 

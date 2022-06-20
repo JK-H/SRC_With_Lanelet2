@@ -441,7 +441,7 @@ bool MissionPlannerLanelet2::planFullCoveragePath(
             routing_graph_ptr_->getRoute(full_coverage_path.back(), goal_lanelet, 0);
   if (!last_route) {
     ROS_ERROR_STREAM(
-      "Failed to find a proper back_route!"
+      "Failed to find a proper last_route!"
       << std::endl
       << "start lane id: " << full_coverage_path.back().id() << std::endl
       << "goal lane id: " << goal_lanelet.id() << std::endl);
@@ -459,6 +459,9 @@ bool MissionPlannerLanelet2::planFullCoveragePath(
   clock_t end = clock();
   double elapsed_secs = static_cast<double>(end - begin) / CLOCKS_PER_SEC;
   std::cout << "elapsed time: " << elapsed_secs << "\n";
+
+  ROS_INFO_STREAM("Total length of this path: " << getPathCost(full_coverage_path));
+  ROS_INFO_STREAM("Total length of all lanelets: " << getTotalLength());
 
   ROS_INFO_STREAM("laneletLayer size: " << lanelet_map_ptr_->laneletLayer.size());
   ROS_INFO_STREAM("passableSubmap() size: " << routing_graph_ptr_->passableSubmap()->laneletLayer.size());
@@ -506,6 +509,17 @@ void MissionPlannerLanelet2::initializeNode2laneletHash()
   for (int node_index = 0; umap_it != umap_end; node_index++, umap_it++){
       node2lanelet_hash_.emplace(node_index, umap_it->id());
   }
+}
+
+double MissionPlannerLanelet2::getTotalLength() const
+{
+  double total_length = 0;
+  auto umap_it = routing_graph_ptr_->passableSubmap()->laneletLayer.begin();
+  auto umap_end = routing_graph_ptr_->passableSubmap()->laneletLayer.end();
+  for (; umap_it != umap_end;umap_it++){
+    total_length += lanelet::geometry::approximatedLength2d(*umap_it);
+  }
+  return total_length;
 }
 
 // get weight matrix
@@ -607,11 +621,12 @@ bool MissionPlannerLanelet2::planFullCoveragePathByTSP(
   if(!expandPathToTheLanelet(&full_coverage_path, goal_lanelet))
     return false;
 
-  ROS_INFO_STREAM("Cost of full_coverage_path finally: " << getPathCost(full_coverage_path));
-
   clock_t end = clock();
   double elapsed_secs = static_cast<double>(end - begin) / CLOCKS_PER_SEC;
   ROS_INFO_STREAM("elapsed time: " << elapsed_secs);
+
+  ROS_INFO_STREAM("Cost of full_coverage_path finally: " << getPathCost(full_coverage_path));
+  ROS_INFO_STREAM("Total length of all lanelets: " << getTotalLength());
 
   ROS_INFO_STREAM("laneletLayer size: " << lanelet_map_ptr_->laneletLayer.size());
   ROS_INFO_STREAM("passableSubmap() size: " << routing_graph_ptr_->passableSubmap()->laneletLayer.size());

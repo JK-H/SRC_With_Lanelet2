@@ -1,5 +1,5 @@
 <launch>
-  <arg name="file_name" default="$(find map_loader)/data/lanelet2_map.osm"/>
+  <arg name="file_name" default="$(find map_loader)/data/lanelet2_map_2.osm"/>
   <arg name="lanelet2_map_topic" default="vector_map"/>
   <arg name="lanelet2_map_marker_topic" default="vector_map_marker"/>
 

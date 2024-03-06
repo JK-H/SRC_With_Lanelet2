@@ -57,7 +57,7 @@ mkdir catkin_ws && cd catkin_ws && mkdir src
 catkin init
 catkin config --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo # build in release mode (or whatever you prefer)
 cd src
-git clone https://gitlab.senseauto.com/huangjikai/full_coverage_with_lanelet2.git
+git clone https://github.com/JK-H/SRC_With_Lanelet2.git
 cd ..
 catkin build
 ```
